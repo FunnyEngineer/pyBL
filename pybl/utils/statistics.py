@@ -179,8 +179,91 @@ def calculate_stats_matrix(
     return stats_month, stats_weight
 
 
+def single_series_classic_statistics(
+    timeseries: pd.Series[float],
+    timescale: list[timedelta],
+    intensity_time_interval: timedelta,
+) -> pd.DataFrame:
+    """
+    Calculate statistics for the entire time series without monthly separation.
+
+    Parameters
+    ----------
+    timeseries : pd.Series
+        The input timeseries data. The index of the series is datetime and the value is the intensity.
+        The unit of the intensity should be mm/h.
+    timescale : list[timedelta]
+        The list of timescale that we want to calculate the statistics.
+    intensity_time_interval : timedelta
+        The time interval of the intensity data.
+
+    Returns
+    -------
+    target_df : pd.DataFrame
+        Single target matrix containing the statistics. The columns are the statistics properties
+        and the rows are the timescales.
+    """
+    scale_second = np.array([ts.total_seconds() for ts in timescale], dtype=np.float64)
+    scale_hr = scale_second / 3600
+
+    # Data preparation
+    if isinstance(timeseries.index, pd.PeriodIndex):
+        timeseries = timeseries.copy()
+        timeseries.index = timeseries.index.to_timestamp()
+    elif not isinstance(timeseries.index, pd.DatetimeIndex):
+        raise ValueError(
+            f"Index must be DatetimeIndex or PeriodIndex, got {type(timeseries.index)}"
+        )
+
+    if not pd.api.types.is_numeric_dtype(timeseries):
+        raise ValueError(
+            f"The intensity data should be numeric. Got {timeseries.dtype}"
+        )
+
+    # Convert time and clean intensity data
+    unix_time = timeseries.index.to_numpy().astype(np.float64) // 10**9
+    intensity = timeseries.to_numpy()
+    intensity[intensity < 0] = np.nan
+    intensity = (
+        intensity / intensity_time_interval.total_seconds()
+    )  # Convert to per second
+
+    # Create single IndexedSnapshot for the entire series
+    series = IndexedSnapshot(unix_time, intensity)
+
+    # Calculate statistics for each timescale
+    stats = np.zeros((len(timescale), 4))  # 4 stats: mean, cv, ar1, skewness
+
+    for scale_idx, scale in enumerate(scale_second):
+        # Calculate stats for full series
+        scaled_series = series.rescale(scale)
+        stats[scale_idx] = [
+            scaled_series.mean(),
+            scaled_series.coef_variation(),
+            scaled_series.autocorr_coef(1),
+            scaled_series.skewness(),
+        ]
+
+    # Create DataFrame
+    target_df = pd.DataFrame(
+        stats,
+        columns=[
+            StatMetrics.MEAN,
+            StatMetrics.CVAR,
+            StatMetrics.AR1,
+            StatMetrics.SKEWNESS,
+        ],
+        index=scale_hr,
+    )
+    target_df.index.name = "timescale_hr"
+
+    return target_df
+
+
 def classic_statistics(
-    timeseries: pd.Series[float], timescale: list[timedelta], intensity_time_interval: timedelta
+    timeseries: pd.Series[float],
+    timescale: list[timedelta],
+    intensity_time_interval: timedelta,
 ) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
     """
     This function calculate the statistics of the input timeseries and return the target and weight matrix for fitting.
@@ -214,12 +297,15 @@ def classic_statistics(
     elif isinstance(timeseries.index, pd.PeriodIndex):
         timeseries.index = timeseries.index.to_timestamp()
     else:
-        raise ValueError(f"The index of the timeseries should be either DatetimeIndex or PeriodIndex. Got {type(timeseries.index)}")
+        raise ValueError(
+            f"The index of the timeseries should be either DatetimeIndex or PeriodIndex. Got {type(timeseries.index)}"
+        )
 
     # Check the type of the intensity data. It should be a number that can be converted to float
     if not pd.api.types.is_numeric_dtype(timeseries):
-        raise ValueError(f"The intensity data should be numeric. Got {timeseries.dtype}")
-
+        raise ValueError(
+            f"The intensity data should be numeric. Got {timeseries.dtype}"
+        )
 
     unix_time = timeseries.index.to_numpy().astype(np.float64) // 10**9
     intensity = timeseries.to_numpy()
@@ -234,17 +320,29 @@ def classic_statistics(
     for month_idx in range(12):
         # Remove pDry from the target and weight
         target_df = pd.DataFrame(
-            target[month_idx, :, :-1], columns=[StatMetrics.MEAN, StatMetrics.CVAR, StatMetrics.AR1, StatMetrics.SKEWNESS], index=scale_hr
+            target[month_idx, :, :-1],
+            columns=[
+                StatMetrics.MEAN,
+                StatMetrics.CVAR,
+                StatMetrics.AR1,
+                StatMetrics.SKEWNESS,
+            ],
+            index=scale_hr,
         )
         weight_df = pd.DataFrame(
-            weight[month_idx, :, :-1], columns=[StatMetrics.MEAN, StatMetrics.CVAR, StatMetrics.AR1, StatMetrics.SKEWNESS], index=scale_hr
+            weight[month_idx, :, :-1],
+            columns=[
+                StatMetrics.MEAN,
+                StatMetrics.CVAR,
+                StatMetrics.AR1,
+                StatMetrics.SKEWNESS,
+            ],
+            index=scale_hr,
         )
         target_df.index.name = "timescale_hr"
         weight_df.index.name = "timescale_hr"
 
         target_df_list.append(target_df)
         weight_df_list.append(weight_df)
-
-
 
     return target_df_list, weight_df_list
