@@ -432,14 +432,25 @@ class BLRPRxConfig:
         scales = self._stats.index.to_numpy()
         stats_types_enum = self._stats.columns.values
         for i, stat in enumerate(stats_types_enum):
-            if hasattr(StatMetrics, stat):
-                # Convert string to StatMetrics enum member
-                stats_types_enum[i] = getattr(StatMetrics, stat)
-            elif isinstance(stat, StatMetrics):
+            if isinstance(stat, StatMetrics):
                 # Already a StatMetrics enum member
                 continue
+            elif isinstance(stat, str):
+                # Handle string representation of enum (e.g., 'StatMetrics.MEAN' or 'MEAN')
+                if stat.startswith("StatMetrics."):
+                    # Extract the enum member name (e.g., 'MEAN' from 'StatMetrics.MEAN')
+                    enum_name = stat.split(".", 1)[1]
+                else:
+                    # Use the string as-is (e.g., 'MEAN')
+                    enum_name = stat
+
+                if hasattr(StatMetrics, enum_name):
+                    # Convert string to StatMetrics enum member
+                    stats_types_enum[i] = getattr(StatMetrics, enum_name)
+                else:
+                    raise ValueError(f"Invalid StatMetrics: {stat}")
             else:
-                raise ValueError(f"Invalid StatMetrics: {stat}")
+                raise ValueError(f"Invalid StatMetrics: {stat} (type: {type(stat)})")
         stats_types = np.array([stat.value for stat in stats_types_enum])
 
         stats_np = self._stats.to_numpy()
