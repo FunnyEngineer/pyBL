@@ -85,7 +85,6 @@ class BLRPRx(BaseBLRP):
         else:
             self.params = params.copy()
 
-
     def copy(self, rng: Optional[np.random.Generator] = None) -> BLRPRx:
         if rng is None:
             rng = np.random.default_rng(self.rng)
@@ -152,6 +151,7 @@ class BLRPRx(BaseBLRP):
         else:
             # Not implemented properties
             return 0.0
+
     def get_stats_dataframe(
         self,
         stat_metrics: list[StatMetrics],
@@ -172,9 +172,7 @@ class BLRPRx(BaseBLRP):
             for prop_idx, prop in enumerate(stat_metrics):
                 stats_arr[scale_idx, prop_idx] = self.get_stats(prop, float_scale)
 
-        stats_df = pd.DataFrame(
-            stats_arr, columns=stat_metrics, index=timescales
-        )
+        stats_df = pd.DataFrame(stats_arr, columns=stat_metrics, index=timescales)
         stats_df.index.name = "timescale_hr"
 
         return stats_df
@@ -302,7 +300,6 @@ class BLRPRx(BaseBLRP):
 
         warnings.filterwarnings("ignore", category=sp.optimize.OptimizeWarning)
 
-
         if rng is None:
             rng = np.random.default_rng()
         bound = self.bound_estimation(stats, weight)
@@ -316,7 +313,11 @@ class BLRPRx(BaseBLRP):
 
             # Clip the parameters to the bound
 
-            guess = np.clip(np.array(self.params.unpack()), [b[0] for b in bound], [b[1] for b in bound])
+            guess = np.clip(
+                np.array(self.params.unpack()),
+                [b[0] for b in bound],
+                [b[1] for b in bound],
+            )
 
             result_bh = sp.optimize.basinhopping(
                 obj,
@@ -336,7 +337,7 @@ class BLRPRx(BaseBLRP):
         else:
             status = "Maximum iteration reached"
 
-        stats_metrics: list[StatMetrics] = stats.columns.to_list() # type: ignore
+        stats_metrics: list[StatMetrics] = stats.columns.to_list()  # type: ignore
         timescales = stats.index.to_list()
 
         report = {
@@ -345,7 +346,9 @@ class BLRPRx(BaseBLRP):
             "x": self.params.unpack(),
             "status": status,
             "rci_model": self.rci_model.__class__.__name__,
-            "theo_stats": self.get_stats_dataframe(stat_metrics=stats_metrics, timescales=timescales),
+            "theo_stats": self.get_stats_dataframe(
+                stat_metrics=stats_metrics, timescales=timescales
+            ),
         }
 
         return report
@@ -429,7 +432,13 @@ class BLRPRxConfig:
         scales = self._stats.index.to_numpy()
         stats_types_enum = self._stats.columns.values
         for i, stat in enumerate(stats_types_enum):
-            if stat not in StatMetrics:
+            if hasattr(StatMetrics, stat):
+                # Convert string to StatMetrics enum member
+                stats_types_enum[i] = getattr(StatMetrics, stat)
+            elif isinstance(stat, StatMetrics):
+                # Already a StatMetrics enum member
+                continue
+            else:
                 raise ValueError(f"Invalid StatMetrics: {stat}")
         stats_types = np.array([stat.value for stat in stats_types_enum])
 
